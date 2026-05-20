@@ -62,7 +62,7 @@ function log_action(string $action, string $table, int $id_cible, int $id_user):
             INSERT INTO Historique (action, table_cible, id_cible, id_utilisateur)
             VALUES (?, ?, ?, ?)
         ")->execute([substr($action, 0, 50), $table, $id_cible, $id_user]);
-    } catch (PDOException) {}
+    } catch (PDOException) {}//
 }
 
 // ── IP client ─────────────────────────────────────────────────────────────────

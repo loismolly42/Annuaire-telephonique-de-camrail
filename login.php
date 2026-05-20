@@ -1,40 +1,32 @@
 <?php
 /**
  * Camrail Directory — Page de connexion
- * Si déjà connecté → redirection directe vers dashboard
  */
+ini_set('display_errors', 1);
+error_reporting(E_ALL);
 session_start();
 
-// Déjà connecté ? On redirige directement
 if (!empty($_SESSION['user_id'])) {
-    header('Location: dashboard.php');
+    header('Location: ' . ($_SESSION['role'] === 'admin' ? 'admin.php' : 'dashboard.php'));
     exit;
 }
 
-// ── Mapping des codes d'erreur → messages ─────────────────────────────────────
 $errors = [
     'empty'    => 'Veuillez renseigner votre identifiant et votre mot de passe.',
     'user'     => 'Identifiant introuvable. Vérifiez votre matricule (ex : CR-000001).',
     'password' => 'Mot de passe incorrect. Veuillez réessayer.',
     'role'     => 'Accès refusé : vous n\'avez pas les droits administrateur.',
-    'locked'   => 'Compte temporairement bloqué après plusieurs tentatives. Réessayez dans 15 minutes.',
+    'locked'   => 'Compte temporairement bloqué après plusieurs tentatives. Réessayez dans 15 min.',
     'expired'  => 'Votre session a expiré. Veuillez vous reconnecter.',
     'session'  => 'Vous devez être connecté pour accéder à cette page.',
     'db'       => 'Erreur de connexion à la base de données. Contactez l\'administrateur.',
     'format'   => 'Format d\'identifiant invalide. Utilisez le format CR-XXXXXX.',
 ];
 
-$error_code = $_GET['error'] ?? '';
-$error_msg  = $errors[$error_code] ?? '';
-
-// Message de déconnexion réussie
-$success_msg = '';
-if (($_GET['msg'] ?? '') === 'logged_out') {
-    $success_msg = 'Vous avez été déconnecté avec succès.';
-}
-
-// Pré-remplir l'identifiant si disponible (après erreur de mdp)
-$prefill_id = htmlspecialchars($_GET['id'] ?? '');
+$error_code  = $_GET['error'] ?? '';
+$error_msg   = $errors[$error_code] ?? '';
+$success_msg = (($_GET['msg'] ?? '') === 'logged_out') ? 'Vous avez été déconnecté avec succès.' : '';
+$prefill_id  = htmlspecialchars($_GET['id'] ?? '');
 ?>
 <!DOCTYPE html>
 <html lang="fr">
@@ -47,7 +39,6 @@ $prefill_id = htmlspecialchars($_GET['id'] ?? '');
 </head>
 <body>
 
-  <!-- Fond décoratif -->
   <div class="bg-grid" aria-hidden="true">
     <svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
       <defs>
@@ -66,7 +57,6 @@ $prefill_id = htmlspecialchars($_GET['id'] ?? '');
   <main class="card-wrapper" role="main">
     <div class="card" id="login-card">
 
-      <!-- Logo & Titre -->
       <header class="card-header">
         <div class="logo-circle" aria-label="Logo Camrail">
           <img src="https://lh3.googleusercontent.com/aida-public/AB6AXuA8ujkIfvxYa3HE9iIYnZcV87PhKCaRKy95SGq0FWCOSZbcxybbQ5csJYS3oVFJk-2Triq2HLXSxFADkkzUNnyduD0fLRqKFXwMJ1AUmaUMQsJO2tSTVHyrEoOTER0GD0dBp02lPBJcSRErsu3501IRbbty42ZjxPkdQsrKvQkMkA7wB6yrpy6z17Qg8xVcPWGvZE9CCpqT1H9hFOqw3c0Hc-ZRqYu4eCqoxDMjKP4C4zTxFjP0XQCFUrdJv8OmkeSiWcUtAHMdUBw"
@@ -78,25 +68,19 @@ $prefill_id = htmlspecialchars($_GET['id'] ?? '');
 
       <!-- Sélecteur de rôle -->
       <div class="role-selector" role="group" aria-label="Choisir un rôle">
-        <button
-          class="role-btn <?= ($error_code !== 'role') ? 'active' : '' ?>"
-          id="btn-user"
-          data-role="user"
-          aria-pressed="<?= ($error_code !== 'role') ? 'true' : 'false' ?>"
-          type="button"
-        >
+        <button class="role-btn <?= ($error_code !== 'role') ? 'active' : '' ?>"
+                id="btn-user" data-role="user"
+                aria-pressed="<?= ($error_code !== 'role') ? 'true' : 'false' ?>"
+                type="button">
           <svg class="role-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
           </svg>
           Utilisateur
         </button>
-        <button
-          class="role-btn <?= ($error_code === 'role') ? 'active' : '' ?>"
-          id="btn-admin"
-          data-role="admin"
-          aria-pressed="<?= ($error_code === 'role') ? 'true' : 'false' ?>"
-          type="button"
-        >
+        <button class="role-btn <?= ($error_code === 'role') ? 'active' : '' ?>"
+                id="btn-admin" data-role="admin"
+                aria-pressed="<?= ($error_code === 'role') ? 'true' : 'false' ?>"
+                type="button">
           <svg class="role-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <path d="M12 2l2.4 4.8L20 8l-4 3.9.9 5.6L12 15l-4.9 2.5.9-5.6L4 8l5.6-.2z"/>
           </svg>
@@ -104,61 +88,57 @@ $prefill_id = htmlspecialchars($_GET['id'] ?? '');
         </button>
       </div>
 
-      <!-- Message de succès (déconnexion) -->
+      <!-- Message succès (déconnexion) -->
       <?php if ($success_msg): ?>
-      <div class="form-alert form-alert--success" role="status" style="display:block;background:#dcfce7;color:#15803d;border-color:#86efac">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;flex-shrink:0">
-          <polyline points="20 6 9 17 4 12"/>
-        </svg>
-        <?= htmlspecialchars($success_msg) ?>
-      </div>
+        <div class="form-alert" role="status"
+             style="display:flex;align-items:center;gap:8px;background:#dcfce7;color:#15803d;border-color:#86efac">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;flex-shrink:0">
+            <polyline points="20 6 9 17 4 12"/>
+          </svg>
+          <?= htmlspecialchars($success_msg) ?>
+        </div>
       <?php endif; ?>
 
-      <!-- Message d'erreur serveur -->
+      <!-- Message erreur serveur -->
       <?php if ($error_msg): ?>
-      <div class="form-alert" role="alert" style="display:flex;align-items:center;gap:8px">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;flex-shrink:0">
-          <circle cx="12" cy="12" r="10"/>
-          <line x1="12" y1="8" x2="12" y2="12"/>
-          <line x1="12" y1="16" x2="12.01" y2="16"/>
-        </svg>
-        <?= htmlspecialchars($error_msg) ?>
-      </div>
+        <div class="form-alert" role="alert"
+             style="display:flex;align-items:center;gap:8px">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;flex-shrink:0">
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="12" y1="8" x2="12" y2="12"/>
+            <line x1="12" y1="16" x2="12.01" y2="16"/>
+          </svg>
+          <?= htmlspecialchars($error_msg) ?>
+        </div>
       <?php endif; ?>
 
       <!-- Formulaire -->
       <form id="login-form" class="login-form" method="POST" action="backend/auth.php" novalidate>
 
-        <!-- Champ rôle caché (mis à jour par JS selon le bouton actif) -->
-        <input type="hidden" name="role" id="role-input" value="<?= $error_code === 'role' ? 'admin' : 'user' ?>"/>
+        <input type="hidden" name="role" id="role-input"
+               value="<?= $error_code === 'role' ? 'admin' : 'user' ?>"/>
 
-        <!-- Champ ID Employé -->
+        <!-- Identifiant -->
         <div class="field-group" id="group-id">
           <label for="employee-id" class="field-label">Identifiant Employé</label>
           <div class="field-input-wrap">
             <svg class="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/>
             </svg>
-            <input
-              type="text"
-              id="employee-id"
-              name="employee_id"
-              class="field-input <?= in_array($error_code, ['user','empty','format']) ? 'field-input--error' : '' ?>"
-              placeholder="CR-000000"
-              value="<?= $prefill_id ?>"
-              autocomplete="username"
-              autocapitalize="characters"
-              spellcheck="false"
-              aria-required="true"
-              aria-describedby="error-id"
-            />
+            <input type="text" id="employee-id" name="employee_id"
+                   class="field-input <?= in_array($error_code, ['user','empty','format']) ? 'field-input--error' : '' ?>"
+                   placeholder="CR-000000"
+                   value="<?= $prefill_id ?>"
+                   autocomplete="username"
+                   autocapitalize="characters"
+                   spellcheck="false"
+                   aria-required="true"
+                   aria-describedby="error-id"/>
           </div>
-          <span class="field-error" id="error-id" role="alert" aria-live="polite">
-            <?= in_array($error_code, ['user','format']) ? htmlspecialchars($error_msg) : '' ?>
-          </span>
+          <span class="field-error" id="error-id" role="alert" aria-live="polite"></span>
         </div>
 
-        <!-- Champ Mot de passe -->
+        <!-- Mot de passe -->
         <div class="field-group" id="group-pwd">
           <div class="field-label-row">
             <label for="password" class="field-label">Mot de passe</label>
@@ -168,16 +148,12 @@ $prefill_id = htmlspecialchars($_GET['id'] ?? '');
             <svg class="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>
             </svg>
-            <input
-              type="password"
-              id="password"
-              name="password"
-              class="field-input <?= $error_code === 'password' ? 'field-input--error' : '' ?>"
-              placeholder="••••••••"
-              autocomplete="current-password"
-              aria-required="true"
-              aria-describedby="error-pwd"
-            />
+            <input type="password" id="password" name="password"
+                   class="field-input <?= $error_code === 'password' ? 'field-input--error' : '' ?>"
+                   placeholder="••••••••"
+                   autocomplete="current-password"
+                   aria-required="true"
+                   aria-describedby="error-pwd"/>
             <button type="button" class="toggle-pwd" id="toggle-pwd" aria-label="Afficher le mot de passe">
               <svg id="icon-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
@@ -188,9 +164,7 @@ $prefill_id = htmlspecialchars($_GET['id'] ?? '');
               </svg>
             </button>
           </div>
-          <span class="field-error" id="error-pwd" role="alert" aria-live="polite">
-            <?= $error_code === 'password' ? htmlspecialchars($error_msg) : '' ?>
-          </span>
+          <span class="field-error" id="error-pwd" role="alert" aria-live="polite"></span>
         </div>
 
         <!-- Se souvenir -->
@@ -199,23 +173,23 @@ $prefill_id = htmlspecialchars($_GET['id'] ?? '');
           <span class="remember-text">Se souvenir de cet appareil</span>
         </label>
 
-        <!-- Bouton de soumission -->
+        <!-- Submit -->
         <button type="submit" class="submit-btn" id="submit-btn">
           <span class="submit-label">Connexion</span>
-          <svg class="submit-spinner" id="submit-spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true" style="display:none">
+          <svg class="submit-spinner" id="submit-spinner" viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" stroke-width="2.5" aria-hidden="true" style="display:none">
             <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
           </svg>
-          <svg class="submit-arrow" id="submit-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+          <svg class="submit-arrow" id="submit-arrow" viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" stroke-width="2.5" aria-hidden="true">
             <path d="M5 12h14M12 5l7 7-7 7"/>
           </svg>
         </button>
 
-        <!-- Alerte JS (validation côté client) -->
         <div class="form-alert" id="form-alert" role="alert" aria-live="assertive" style="display:none"></div>
 
       </form>
 
-      <!-- Pied de carte -->
       <footer class="card-footer">
         <span class="footer-badge">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
@@ -232,7 +206,7 @@ $prefill_id = htmlspecialchars($_GET['id'] ?? '');
         </span>
       </footer>
 
-    </div><!-- /card -->
+    </div>
 
     <p class="legal-notice">
       © <?= date('Y') ?> Camrail S.A. — Services Numériques &amp; Répertoire.<br/>
@@ -240,56 +214,48 @@ $prefill_id = htmlspecialchars($_GET['id'] ?? '');
     </p>
   </main>
 
-  <script src="js/login.js"></script>
   <script>
-  // ── Sélecteur de rôle ─────────────────────────────────────────────────────
   (function () {
-    const btnUser  = document.getElementById('btn-user');
-    const btnAdmin = document.getElementById('btn-admin');
-    const roleInput= document.getElementById('role-input');
+    'use strict';
 
+    const form      = document.getElementById('login-form');
+    const idInput   = document.getElementById('employee-id');
+    const pwdInput  = document.getElementById('password');
+    const errId     = document.getElementById('error-id');
+    const errPwd    = document.getElementById('error-pwd');
+    const formAlert = document.getElementById('form-alert');
+    const spinner   = document.getElementById('submit-spinner');
+    const arrow     = document.getElementById('submit-arrow');
+    const submitBtn = document.getElementById('submit-btn');
+    const btnUser   = document.getElementById('btn-user');
+    const btnAdmin  = document.getElementById('btn-admin');
+    const roleInput = document.getElementById('role-input');
+    const togglePwd = document.getElementById('toggle-pwd');
+    const iconEye   = document.getElementById('icon-eye');
+    const iconEyeOff= document.getElementById('icon-eye-off');
+    const forgot    = document.getElementById('forgot-link');
+
+    /* 1. Sélecteur de rôle */
     function setRole(role) {
       roleInput.value = role;
       btnUser.classList.toggle('active', role === 'user');
       btnAdmin.classList.toggle('active', role === 'admin');
-      btnUser.setAttribute('aria-pressed', role === 'user');
-      btnAdmin.setAttribute('aria-pressed', role === 'admin');
+      btnUser.setAttribute('aria-pressed', String(role === 'user'));
+      btnAdmin.setAttribute('aria-pressed', String(role === 'admin'));
     }
-
     btnUser.addEventListener('click',  () => setRole('user'));
     btnAdmin.addEventListener('click', () => setRole('admin'));
-  })();
 
-  // ── Afficher/masquer le mot de passe ──────────────────────────────────────
-  (function () {
-    const btn     = document.getElementById('toggle-pwd');
-    const input   = document.getElementById('password');
-    const iconEye    = document.getElementById('icon-eye');
-    const iconEyeOff = document.getElementById('icon-eye-off');
-    if (!btn) return;
-
-    btn.addEventListener('click', () => {
-      const isPassword = input.type === 'password';
-      input.type       = isPassword ? 'text' : 'password';
-      iconEye.style.display    = isPassword ? 'none'  : '';
-      iconEyeOff.style.display = isPassword ? ''      : 'none';
-      btn.setAttribute('aria-label', isPassword ? 'Masquer le mot de passe' : 'Afficher le mot de passe');
+    /* 2. Toggle mot de passe — corrigé (utilisait idInput au lieu de pwdInput) */
+    togglePwd.addEventListener('click', () => {
+      const show = pwdInput.type === 'password';
+      pwdInput.type = show ? 'text' : 'password';
+      iconEye.style.display    = show ? 'none' : '';
+      iconEyeOff.style.display = show ? ''     : 'none';
+      togglePwd.setAttribute('aria-label', show ? 'Masquer le mot de passe' : 'Afficher le mot de passe');
     });
-  })();
 
-  // ── Validation côté client avant envoi ────────────────────────────────────
-  (function () {
-    const form    = document.getElementById('login-form');
-    const idInput = document.getElementById('employee-id');
-    const pwdInput= document.getElementById('password');
-    const errId   = document.getElementById('error-id');
-    const errPwd  = document.getElementById('error-pwd');
-    const alert   = document.getElementById('form-alert');
-    const spinner = document.getElementById('submit-spinner');
-    const arrow   = document.getElementById('submit-arrow');
-    const btn     = document.getElementById('submit-btn');
-
-    // Auto-formater l'identifiant en majuscules
+    /* 3. Auto-majuscules identifiant */
     idInput.addEventListener('input', () => {
       const pos = idInput.selectionStart;
       idInput.value = idInput.value.toUpperCase();
@@ -303,11 +269,18 @@ $prefill_id = htmlspecialchars($_GET['id'] ?? '');
       pwdInput.classList.remove('field-input--error');
     });
 
+    /* 4. Validation + soumission */
     form.addEventListener('submit', function (e) {
-      let valid = true;
+      errId.textContent  = '';
+      errPwd.textContent = '';
+      idInput.classList.remove('field-input--error');
+      pwdInput.classList.remove('field-input--error');
+      formAlert.style.display = 'none';
 
-      // Valider identifiant
-      const id = idInput.value.trim();
+      let valid = true;
+      const id  = idInput.value.trim();
+      const pwd = pwdInput.value;
+
       if (!id) {
         errId.textContent = 'Veuillez entrer votre identifiant.';
         idInput.classList.add('field-input--error');
@@ -320,8 +293,6 @@ $prefill_id = htmlspecialchars($_GET['id'] ?? '');
         valid = false;
       }
 
-      // Valider mot de passe
-      const pwd = pwdInput.value;
       if (!pwd) {
         errPwd.textContent = 'Veuillez entrer votre mot de passe.';
         pwdInput.classList.add('field-input--error');
@@ -329,28 +300,31 @@ $prefill_id = htmlspecialchars($_GET['id'] ?? '');
         valid = false;
       }
 
-      if (!valid) { e.preventDefault(); return; }
+      if (!valid) {
+        e.preventDefault();
+        return;
+      }
 
-      // Spinner de chargement
-      btn.disabled = true;
+      /* Tout OK → spinner, on laisse partir vers PHP */
+      submitBtn.disabled    = true;
       spinner.style.display = '';
       arrow.style.display   = 'none';
+      submitBtn.querySelector('.submit-label').textContent = 'Connexion…';
     });
 
-    // Lien "Mot de passe oublié"
-    const forgotLink = document.getElementById('forgot-link');
-    if (forgotLink) {
-      forgotLink.addEventListener('click', function (e) {
-        e.preventDefault();
-        alert.textContent    = 'Contactez votre administrateur système pour réinitialiser votre mot de passe.';
-        alert.style.display  = 'block';
-        alert.style.background = '#fef3c7';
-        alert.style.color    = '#92400e';
-        alert.style.border   = '1px solid #fbbf24';
-        setTimeout(() => { alert.style.display = 'none'; }, 6000);
-      });
-    }
+    /* 5. Lien "Oublié ?" */
+    forgot.addEventListener('click', function (e) {
+      e.preventDefault();
+      formAlert.textContent      = 'Contactez votre administrateur pour réinitialiser votre mot de passe.';
+      formAlert.style.display    = 'flex';
+      formAlert.style.background = '#fef3c7';
+      formAlert.style.color      = '#92400e';
+      formAlert.style.border     = '1px solid #fbbf24';
+      setTimeout(() => { formAlert.style.display = 'none'; }, 6000);
+    });
+
   })();
   </script>
+
 </body>
 </html>

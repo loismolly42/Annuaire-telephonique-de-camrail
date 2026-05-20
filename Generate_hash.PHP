@@ -6,7 +6,7 @@
  *   php generate_hash.php monmotdepasse
  *
  * USAGE VIA NAVIGATEUR (à supprimer en production) :
- *   http://localhost/camrail/generate_hash.php
+      http://localhost/camrail_annuaire/generate_hash.php
  *
  * ⚠️  SUPPRIMER CE FICHIER EN PRODUCTION ⚠️
  */
