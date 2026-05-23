@@ -143,3 +143,35 @@ CREATE TABLE Demandes_Modification (
   FOREIGN KEY (id_utilisateur) REFERENCES Utilisateurs(id_utilisateur),
   FOREIGN KEY (id_admin) REFERENCES Utilisateurs(id_utilisateur)
 );
+-- =========================
+-- TABLE LOCALISATIONS
+-- =========================
+
+CREATE TABLE Localisations (
+
+    id_localisation INT AUTO_INCREMENT PRIMARY KEY,
+
+    nom_localisation VARCHAR(100) NOT NULL,
+    
+    description TEXT,
+
+    ville VARCHAR(100),
+
+    site VARCHAR(100),
+
+    batiment VARCHAR(100),
+
+    etage VARCHAR(50),
+
+    bureau VARCHAR(50),
+
+    date_creation TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+
+ALTER TABLE Employes
+ADD id_localisation INT;
+
+ALTER TABLE Employes
+ADD CONSTRAINT fk_localisation
+FOREIGN KEY (id_localisation)
+REFERENCES Localisations(id_localisation);
+);

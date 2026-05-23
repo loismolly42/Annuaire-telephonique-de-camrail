@@ -2,18 +2,25 @@
 /**
  * Camrail — Déconnexion
  */
-if (session_status() === PHP_SESSION_NONE) session_start();
+
+session_name('camrail_sess');
+if (session_status() === PHP_SESSION_NONE) {
+    session_set_cookie_params([
+        'lifetime' => 0,
+        'path'     => '/',
+        'httponly' => true,
+        'samesite' => 'Strict',
+    ]);
+    session_start();
+}
 
 $_SESSION = [];
 
 if (ini_get('session.use_cookies')) {
-    $p = session_get_cookie_params();
-    setcookie(session_name(), '', [
+    setcookie('camrail_sess', '', [
         'expires'  => time() - 42000,
-        'path'     => $p['path'],
-        'domain'   => $p['domain'],
-        'secure'   => $p['secure'],
-        'httponly' => $p['httponly'],
+        'path'     => '/',
+        'httponly' => true,
         'samesite' => 'Strict',
     ]);
 }

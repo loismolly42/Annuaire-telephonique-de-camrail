@@ -1,562 +1,541 @@
 <?php
 /**
- * Camrail Directory — API JSON
- * GET|POST /backend/api.php?action=xxx
- *
- * Toutes les routes nécessitent une session valide.
- * Les routes marquées [ADMIN] nécessitent nom_role = 'admin'.
- *
- * ┌─────────────────────────────────┬────────┬───────┐
- * │ Action                          │ Méthode│ Admin │
- * ├─────────────────────────────────┼────────┼───────┤
- * │ employees                       │ GET    │       │
- * │ employee                        │ GET    │       │
- * │ departments                     │ GET    │       │
- * │ stats                           │ GET    │       │
- * │ search                          │ GET    │       │
- * │ favorites                       │ GET    │       │
- * │ add_favorite                    │ POST   │       │
- * │ remove_favorite                 │ POST   │       │
- * │ activity_log                    │ GET    │  ✓    │
- * │ validation_queue                │ GET    │  ✓    │
- * │ approve_request                 │ POST   │  ✓    │
- * │ reject_request                  │ POST   │  ✓    │
- * │ add_employee                    │ POST   │  ✓    │
- * │ delete_employee                 │ POST   │  ✓    │
- * │ update_profile                  │ POST   │       │
- * │ request_modification            │ POST   │       │
- * │ change_password                 │ POST   │       │
- * └─────────────────────────────────┴────────┴───────┘
+ * backend/api.php  — Camrail Annuaire
  */
 
-$api_mode = true;
-require_once __DIR__ . '/session_guard.php';
+$GLOBALS['api_mode'] = true;
 
-$action = trim($_GET['action'] ?? $_POST['action'] ?? '');
+require_once __DIR__ . '/config.php';
+
+if (session_status() === PHP_SESSION_NONE) {
+    session_name('camrail_sess');
+    session_set_cookie_params([
+        'lifetime' => 0,
+        'path'     => '/',
+        'httponly' => true,
+        'samesite' => 'Strict',
+    ]);
+    session_start();
+}
+
+if (empty($_SESSION['user_id'])) {
+    json_err('unauthenticated', 401);
+}
+
+header('Content-Type: application/json; charset=utf-8');
+
+// ── Utilitaires locaux ────────────────────────────────────────────────────────
+
+function json_out(array $data): void {
+    echo json_encode($data, JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+function is_admin(): bool {
+    return ($_SESSION['role'] ?? '') === 'admin';
+}
+
+function require_admin(): void {
+    if (!is_admin()) json_out(['success' => false, 'error' => 'forbidden']);
+}
+
+function clean(?string $v): string {
+    return trim(htmlspecialchars($v ?? '', ENT_QUOTES, 'UTF-8'));
+}
+
+function current_user_id(): int {
+    return (int)($_SESSION['id_utilisateur'] ?? 0);
+}
+
+function log_act(string $action, string $table, int $id_cible): void {
+    $uid = current_user_id();
+    if (!$uid) return;
+    log_action($action, $table, $id_cible, $uid);
+}
+
+// ── Routeur ──────────────────────────────────────────────────────────────────
+
 $method = $_SERVER['REQUEST_METHOD'];
+$action = $method === 'GET'
+    ? ($_GET['action']  ?? '')
+    : ($_POST['action'] ?? '');
 
-// ── Routes ────────────────────────────────────────────────────────────────────
-match (true) {
+// ── Actions GET ──────────────────────────────────────────────────────────────
 
-    // ── Employés ─────────────────────────────────────────────────────────────
-    $action === 'employees' && $method === 'GET'
-        => api_employees(),
+if ($method === 'GET') {
 
-    $action === 'employee' && $method === 'GET'
-        => api_employee((int)($_GET['id'] ?? 0)),
-
-    // ── Départements ─────────────────────────────────────────────────────────
-    $action === 'departments' && $method === 'GET'
-        => api_departments(),
-
-    // ── Stats dashboard ───────────────────────────────────────────────────────
-    $action === 'stats' && $method === 'GET'
-        => api_stats(),
-
-    // ── Recherche globale ─────────────────────────────────────────────────────
-    $action === 'search' && $method === 'GET'
-        => api_search(trim($_GET['q'] ?? '')),
-
-    // ── Favoris ───────────────────────────────────────────────────────────────
-    $action === 'favorites' && $method === 'GET'
-        => api_favorites(),
-
-    $action === 'add_favorite' && $method === 'POST'
-        => api_add_favorite((int)($_POST['id_employe'] ?? 0)),
-
-    $action === 'remove_favorite' && $method === 'POST'
-        => api_remove_favorite((int)($_POST['id_employe'] ?? 0)),
-
-    // ── Journal d'activité [ADMIN] ────────────────────────────────────────────
-    $action === 'activity_log' && $method === 'GET'
-        => api_activity_log(),
-
-    // ── File de validation [ADMIN] ────────────────────────────────────────────
-    $action === 'validation_queue' && $method === 'GET'
-        => api_validation_queue(),
-
-    $action === 'approve_request' && $method === 'POST'
-        => api_handle_request((int)($_POST['id_demande'] ?? 0), 'valide'),
-
-    $action === 'reject_request' && $method === 'POST'
-        => api_handle_request((int)($_POST['id_demande'] ?? 0), 'refuse'),
-
-    // ── CRUD employé [ADMIN] ──────────────────────────────────────────────────
-    $action === 'add_employee' && $method === 'POST'
-        => api_add_employee(),
-
-    $action === 'delete_employee' && $method === 'POST'
-        => api_delete_employee((int)($_POST['id_employe'] ?? 0)),
-
-    // ── Profil utilisateur ────────────────────────────────────────────────────
-    $action === 'update_profile' && $method === 'POST'
-        => api_update_profile(),
-
-    $action === 'request_modification' && $method === 'POST'
-        => api_request_modification(),
-
-    $action === 'change_password' && $method === 'POST'
-        => api_change_password(),
-
-    // ── Route inconnue ────────────────────────────────────────────────────────
-    default => json_err('unknown_action', 404),
-};
-
-// =============================================================================
-// IMPLÉMENTATION DES ROUTES
-// =============================================================================
-
-// ── Liste des employés (paginée, filtrable) ───────────────────────────────────
-function api_employees(): never {
-    $page    = max(1, (int)($_GET['page'] ?? 1));
-    $limit   = min(48, max(1, (int)($_GET['limit'] ?? 24)));
-    $offset  = ($page - 1) * $limit;
-    $dept    = (int)($_GET['dept'] ?? 0);
-    $status  = $_GET['status'] ?? '';   // non utilisé dans le schéma actuel
-    $search  = trim($_GET['q'] ?? '');
-
-    $where   = [];
-    $params  = [];
-
-    if ($dept > 0) {
-        $where[] = 'e.id_service = ?';
-        $params[] = $dept;
-    }
-    if ($search !== '') {
-        $where[] = '(e.nom LIKE ? OR e.prenom LIKE ? OR e.poste LIKE ?)';
-        $like = '%' . $search . '%';
-        array_push($params, $like, $like, $like);
+    // ── stats ─────────────────────────────────────────────────────────────────
+    if ($action === 'stats') {
+        require_admin();
+        $total_employes = (int)db()->query("SELECT COUNT(*) FROM Employes")->fetchColumn();
+        $total_services = (int)db()->query("SELECT COUNT(*) FROM Services")->fetchColumn();
+        $total_users    = (int)db()->query("SELECT COUNT(*) FROM Utilisateurs")->fetchColumn();
+        $en_attente     = (int)db()->query(
+            "SELECT COUNT(*) FROM Demandes_Modification WHERE statut='en_attente'"
+        )->fetchColumn();
+        $repartition = db()->query(
+            "SELECT s.nom_service, COUNT(e.id_employe) as total
+             FROM Services s
+             LEFT JOIN Employes e ON e.id_service = s.id_service
+             GROUP BY s.id_service ORDER BY total DESC LIMIT 6"
+        )->fetchAll(PDO::FETCH_ASSOC);
+        json_out(['success' => true, 'total_employes' => $total_employes,
+                  'total_services' => $total_services, 'total_users' => $total_users,
+                  'en_attente' => $en_attente, 'repartition' => $repartition]);
     }
 
-    $sql_where = $where ? 'WHERE ' . implode(' AND ', $where) : '';
+    // ── departments ───────────────────────────────────────────────────────────
+    if ($action === 'departments') {
+        $rows = db()->query(
+            "SELECT s.id_service, s.nom_service, COUNT(e.id_employe) AS nb_employes
+             FROM Services s
+             LEFT JOIN Employes e ON e.id_service = s.id_service
+             GROUP BY s.id_service ORDER BY s.nom_service"
+        )->fetchAll(PDO::FETCH_ASSOC);
+        json_out(['success' => true, 'departments' => $rows]);
+    }
 
-    // Total
-    $count = db()->prepare("
-        SELECT COUNT(*) FROM Employes e $sql_where
-    ");
-    $count->execute($params);
-    $total = (int) $count->fetchColumn();
+    // ── roles ─────────────────────────────────────────────────────────────────
+    if ($action === 'roles') {
+        require_admin();
+        $rows = db()->query("SELECT id_role, nom_role FROM Roles ORDER BY nom_role")
+                    ->fetchAll(PDO::FETCH_ASSOC);
+        json_out(['success' => true, 'roles' => $rows]);
+    }
 
-    // Données
-    $stmt = db()->prepare("
-        SELECT
-            e.id_employe,
-            e.nom,
-            e.prenom,
-            e.poste,
-            e.email,
-            e.photo,
-            s.id_service,
-            s.nom_service,
-            n.numero AS phone_principal
-        FROM Employes e
-        LEFT JOIN Services s ON s.id_service = e.id_service
-        LEFT JOIN Numeros n  ON n.id_employe  = e.id_employe AND n.principal = 1
-        $sql_where
-        ORDER BY e.nom ASC, e.prenom ASC
-        LIMIT $limit OFFSET $offset
-    ");
-    $stmt->execute($params);
-    $employees = $stmt->fetchAll();
+    // ── localisations ─────────────────────────────────────────────────────────
+    if ($action === 'localisations') {
+        $rows = db()->query(
+            "SELECT id_localisation, nom_localisation, ville, site, batiment, etage, bureau
+             FROM Localisations ORDER BY nom_localisation"
+        )->fetchAll(PDO::FETCH_ASSOC);
+        json_out(['success' => true, 'localisations' => $rows]);
+    }
 
-    json_ok([
-        'employees'   => $employees,
-        'total'       => $total,
-        'page'        => $page,
-        'pages'       => (int) ceil($total / $limit),
-        'limit'       => $limit,
-    ]);
-}
+    // ── employees (liste paginée) ─────────────────────────────────────────────
+    if ($action === 'employees') {
+        $page   = max(1, (int)($_GET['page']  ?? 1));
+        $limit  = min(100, max(1, (int)($_GET['limit'] ?? 24)));
+        $sort   = in_array($_GET['sort'] ?? '', ['nom','poste','date_creation']) ? $_GET['sort'] : 'nom';
+        $q      = trim($_GET['q']    ?? '');
+        $dept   = (int)($_GET['dept'] ?? 0);
+        $offset = ($page - 1) * $limit;
 
-// ── Fiche détaillée d'un employé ─────────────────────────────────────────────
-function api_employee(int $id): never {
-    if ($id <= 0) json_err('invalid_id');
+        $where  = ['1=1'];
+        $params = [];
 
-    // Infos de base
-    $stmt = db()->prepare("
-        SELECT
-            e.id_employe, e.nom, e.prenom, e.poste, e.email, e.photo,
-            e.date_creation,
-            s.id_service, s.nom_service
-        FROM Employes e
-        LEFT JOIN Services s ON s.id_service = e.id_service
-        WHERE e.id_employe = ?
-        LIMIT 1
-    ");
-    $stmt->execute([$id]);
-    $emp = $stmt->fetch();
-    if (!$emp) json_err('not_found', 404);
-
-    // Numéros
-    $nstmt = db()->prepare("
-        SELECT id_numero, type_numero, numero, principal
-        FROM Numeros
-        WHERE id_employe = ?
-        ORDER BY principal DESC
-    ");
-    $nstmt->execute([$id]);
-    $emp['numeros'] = $nstmt->fetchAll();
-
-    json_ok(['employee' => $emp]);
-}
-
-// ── Départements avec comptage ────────────────────────────────────────────────
-function api_departments(): never {
-    $stmt = db()->query("
-        SELECT
-            s.id_service,
-            s.nom_service,
-            s.description,
-            COUNT(e.id_employe) AS nb_employes
-        FROM Services s
-        LEFT JOIN Employes e ON e.id_service = s.id_service
-        GROUP BY s.id_service, s.nom_service, s.description
-        ORDER BY nb_employes DESC
-    ");
-    json_ok(['departments' => $stmt->fetchAll()]);
-}
-
-// ── Stats globales (dashboard) ────────────────────────────────────────────────
-function api_stats(): never {
-    $db = db();
-
-    $total_emp  = (int) $db->query("SELECT COUNT(*) FROM Employes")->fetchColumn();
-    $total_dept = (int) $db->query("SELECT COUNT(*) FROM Services")->fetchColumn();
-    $total_user = (int) $db->query("SELECT COUNT(*) FROM Utilisateurs")->fetchColumn();
-    $en_attente = (int) $db->query("SELECT COUNT(*) FROM Demandes_Modification WHERE statut = 'en_attente'")->fetchColumn();
-
-    // Répartition par service (top 5)
-    $repartition = $db->query("
-        SELECT s.nom_service, COUNT(e.id_employe) AS total
-        FROM Services s
-        LEFT JOIN Employes e ON e.id_service = s.id_service
-        GROUP BY s.id_service, s.nom_service
-        ORDER BY total DESC
-        LIMIT 5
-    ")->fetchAll();
-
-    // Dernières embauches
-    $recent = $db->query("
-        SELECT e.nom, e.prenom, e.poste, e.photo, e.date_creation, s.nom_service
-        FROM Employes e
-        LEFT JOIN Services s ON s.id_service = e.id_service
-        ORDER BY e.date_creation DESC
-        LIMIT 5
-    ")->fetchAll();
-
-    json_ok([
-        'total_employes'  => $total_emp,
-        'total_services'  => $total_dept,
-        'total_users'     => $total_user,
-        'en_attente'      => $en_attente,
-        'repartition'     => $repartition,
-        'recents'         => $recent,
-    ]);
-}
-
-// ── Recherche globale ─────────────────────────────────────────────────────────
-function api_search(string $q): never {
-    if (strlen($q) < 2) json_ok(['results' => []]);
-
-    $like = '%' . $q . '%';
-    $stmt = db()->prepare("
-        SELECT
-            e.id_employe,
-            e.nom,
-            e.prenom,
-            e.poste,
-            e.photo,
-            e.email,
-            s.nom_service
-        FROM Employes e
-        LEFT JOIN Services s ON s.id_service = e.id_service
-        WHERE e.nom LIKE ? OR e.prenom LIKE ? OR e.poste LIKE ? OR s.nom_service LIKE ?
-        ORDER BY e.nom ASC
-        LIMIT 20
-    ");
-    $stmt->execute([$like, $like, $like, $like]);
-    json_ok(['results' => $stmt->fetchAll(), 'query' => $q]);
-}
-
-// ── Favoris ───────────────────────────────────────────────────────────────────
-function api_favorites(): never {
-    global $current_user;
-    $stmt = db()->prepare("
-        SELECT e.id_employe, e.nom, e.prenom, e.poste, e.photo, e.email, s.nom_service
-        FROM Favoris f
-        INNER JOIN Employes e ON e.id_employe  = f.id_employe
-        LEFT  JOIN Services s ON s.id_service  = e.id_service
-        WHERE f.id_utilisateur = ?
-        ORDER BY f.date_ajout DESC
-    ");
-    $stmt->execute([$current_user['id_db']]);
-    json_ok(['favorites' => $stmt->fetchAll()]);
-}
-
-function api_add_favorite(int $id_emp): never {
-    global $current_user;
-    if ($id_emp <= 0) json_err('invalid_id');
-    try {
-        db()->prepare("
-            INSERT IGNORE INTO Favoris (id_utilisateur, id_employe) VALUES (?, ?)
-        ")->execute([$current_user['id_db'], $id_emp]);
-    } catch (PDOException) { json_err('db_error', 500); }
-    json_ok(['message' => 'Ajouté aux favoris']);
-}
-
-function api_remove_favorite(int $id_emp): never {
-    global $current_user;
-    if ($id_emp <= 0) json_err('invalid_id');
-    db()->prepare("
-        DELETE FROM Favoris WHERE id_utilisateur = ? AND id_employe = ?
-    ")->execute([$current_user['id_db'], $id_emp]);
-    json_ok(['message' => 'Retiré des favoris']);
-}
-
-// ── Journal d'activité [ADMIN] ────────────────────────────────────────────────
-function api_activity_log(): never {
-    global $current_user;
-    if (!$current_user['is_admin']) json_err('forbidden', 403);
-
-    $limit = min(100, (int)($_GET['limit'] ?? 50));
-    $stmt  = db()->prepare("
-        SELECT
-            h.id_historique,
-            h.action,
-            h.table_cible,
-            h.id_cible,
-            h.date_heure,
-            CONCAT(u.prenom, ' ', u.nom) AS admin_name,
-            u.login
-        FROM Historique h
-        LEFT JOIN Utilisateurs u ON u.id_utilisateur = h.id_utilisateur
-        ORDER BY h.date_heure DESC
-        LIMIT $limit
-    ");
-    $stmt->execute();
-    json_ok(['logs' => $stmt->fetchAll()]);
-}
-
-// ── File de validation [ADMIN] ────────────────────────────────────────────────
-function api_validation_queue(): never {
-    global $current_user;
-    if (!$current_user['is_admin']) json_err('forbidden', 403);
-
-    $stmt = db()->query("
-        SELECT
-            d.id_demande,
-            d.table_cible,
-            d.id_cible,
-            d.champ_modifie,
-            d.ancienne_valeur,
-            d.nouvelle_valeur,
-            d.statut,
-            d.type_validation,
-            d.date_demande,
-            CONCAT(u.prenom, ' ', u.nom) AS demandeur,
-            e.nom AS emp_nom, e.prenom AS emp_prenom, e.photo AS emp_photo
-        FROM Demandes_Modification d
-        LEFT JOIN Utilisateurs u ON u.id_utilisateur = d.id_utilisateur
-        LEFT JOIN Employes e     ON e.id_employe     = d.id_cible AND d.table_cible = 'Employes'
-        WHERE d.statut = 'en_attente'
-        ORDER BY d.date_demande ASC
-    ");
-    json_ok(['queue' => $stmt->fetchAll()]);
-}
-
-// ── Approuver / Refuser une demande [ADMIN] ───────────────────────────────────
-function api_handle_request(int $id_demande, string $statut): never {
-    global $current_user;
-    if (!$current_user['is_admin']) json_err('forbidden', 403);
-    if ($id_demande <= 0) json_err('invalid_id');
-
-    $db = db();
-
-    // Récupérer la demande
-    $stmt = $db->prepare("SELECT * FROM Demandes_Modification WHERE id_demande = ? AND statut = 'en_attente' LIMIT 1");
-    $stmt->execute([$id_demande]);
-    $demande = $stmt->fetch();
-    if (!$demande) json_err('not_found', 404);
-
-    $db->beginTransaction();
-    try {
-        // Mettre à jour le statut
-        $db->prepare("
-            UPDATE Demandes_Modification
-            SET statut = ?, id_admin = ?, date_validation = NOW()
-            WHERE id_demande = ?
-        ")->execute([$statut, $current_user['id_db'], $id_demande]);
-
-        // Si approuvé : appliquer la modification
-        if ($statut === 'valide' && $demande['table_cible'] === 'Employes') {
-            $champ = $demande['champ_modifie'];
-            // Whitelist des champs modifiables
-            $allowed_fields = ['nom', 'prenom', 'poste', 'email', 'photo', 'id_service'];
-            if (in_array($champ, $allowed_fields, true)) {
-                $db->prepare("UPDATE Employes SET `$champ` = ? WHERE id_employe = ?")
-                   ->execute([$demande['nouvelle_valeur'], $demande['id_cible']]);
-            }
+        if ($q) {
+            $where[]      = "(e.nom LIKE :q OR e.prenom LIKE :q OR e.poste LIKE :q OR s.nom_service LIKE :q)";
+            $params[':q'] = '%' . $q . '%';
+        }
+        if ($dept) {
+            $where[]         = "e.id_service = :dept";
+            $params[':dept'] = $dept;
         }
 
-        log_action('DEMANDE_' . strtoupper($statut), $demande['table_cible'], $id_demande, $current_user['id_db']);
-        $db->commit();
-    } catch (PDOException $e) {
-        $db->rollBack();
-        json_err('db_error', 500);
+        $whereStr = implode(' AND ', $where);
+        $orderBy  = $sort === 'date_creation' ? 'e.date_creation DESC' : "e.$sort ASC";
+
+        $stCount = db()->prepare(
+            "SELECT COUNT(*) FROM Employes e
+             LEFT JOIN Services s ON s.id_service = e.id_service
+             WHERE $whereStr"
+        );
+        $stCount->execute($params);
+        $total = (int)$stCount->fetchColumn();
+
+        $stRows = db()->prepare(
+            "SELECT e.id_employe, e.prenom, e.nom, e.poste, e.photo, e.email,
+                    s.nom_service,
+                    (SELECT numero FROM Numeros
+                     WHERE id_employe = e.id_employe AND principal = 1 LIMIT 1) AS phone_principal
+             FROM Employes e
+             LEFT JOIN Services s ON s.id_service = e.id_service
+             WHERE $whereStr
+             ORDER BY $orderBy
+             LIMIT :limit OFFSET :offset"
+        );
+        foreach ($params as $k => $v) $stRows->bindValue($k, $v);
+        $stRows->bindValue(':limit',  $limit,  PDO::PARAM_INT);
+        $stRows->bindValue(':offset', $offset, PDO::PARAM_INT);
+        $stRows->execute();
+        $employees = $stRows->fetchAll(PDO::FETCH_ASSOC);
+
+        json_out([
+            'success'   => true,
+            'employees' => $employees,
+            'total'     => $total,
+            'page'      => $page,
+            'pages'     => (int)ceil($total / $limit),
+            'limit'     => $limit,
+        ]);
     }
 
-    json_ok(['message' => $statut === 'valide' ? 'Demande approuvée' : 'Demande refusée']);
+    // ── employee (détail) ─────────────────────────────────────────────────────
+    if ($action === 'employee') {
+        $id = (int)($_GET['id'] ?? 0);
+        if (!$id) json_out(['success' => false, 'error' => 'invalid_id']);
+
+        $st = db()->prepare(
+            "SELECT e.*, s.nom_service
+             FROM Employes e
+             LEFT JOIN Services s ON s.id_service = e.id_service
+             WHERE e.id_employe = :id"
+        );
+        $st->execute([':id' => $id]);
+        $emp = $st->fetch(PDO::FETCH_ASSOC);
+        if (!$emp) json_out(['success' => false, 'error' => 'not_found']);
+
+        $stN = db()->prepare(
+            "SELECT type_numero, numero, principal FROM Numeros WHERE id_employe = :id"
+        );
+        $stN->execute([':id' => $id]);
+        $emp['numeros'] = $stN->fetchAll(PDO::FETCH_ASSOC);
+
+        json_out(['success' => true, 'employee' => $emp]);
+    }
+
+    // ── employees_without_account ─────────────────────────────────────────────
+    if ($action === 'employees_without_account') {
+        require_admin();
+        $rows = db()->query(
+            "SELECT e.id_employe, e.nom, e.prenom, e.poste, s.nom_service
+             FROM Employes e
+             LEFT JOIN Services s ON s.id_service = e.id_service
+             WHERE e.id_employe NOT IN (
+                 SELECT id_employe_lie FROM Utilisateurs
+                 WHERE id_employe_lie IS NOT NULL
+             )
+             ORDER BY e.nom, e.prenom"
+        )->fetchAll(PDO::FETCH_ASSOC);
+        json_out(['success' => true, 'employees' => $rows]);
+    }
+
+    // ── get_employee_full ─────────────────────────────────────────────────────
+    if ($action === 'get_employee_full') {
+        require_admin();
+        $id = (int)($_GET['id'] ?? 0);
+        if (!$id) json_out(['success' => false, 'error' => 'invalid_id']);
+
+        $st = db()->prepare(
+            "SELECT e.*, l.nom_localisation, l.ville, l.site, l.batiment,
+                    l.etage, l.bureau, l.description
+             FROM Employes e
+             LEFT JOIN Localisations l ON l.id_localisation = e.id_localisation
+             WHERE e.id_employe = :id"
+        );
+        $st->execute([':id' => $id]);
+        $emp = $st->fetch(PDO::FETCH_ASSOC);
+        if (!$emp) json_out(['success' => false, 'error' => 'not_found']);
+
+        $loc_fields = ['nom_localisation','ville','site','batiment','etage','bureau','description'];
+        $localisation = null;
+        foreach ($loc_fields as $f) {
+            if (!empty($emp[$f])) { $localisation = []; break; }
+        }
+        if ($localisation !== null) {
+            foreach ($loc_fields as $f) { $localisation[$f] = $emp[$f]; unset($emp[$f]); }
+        } else {
+            foreach ($loc_fields as $f) unset($emp[$f]);
+        }
+        $emp['localisation'] = $localisation;
+
+        $st2 = db()->prepare(
+            "SELECT type_numero AS type, numero, principal FROM Numeros WHERE id_employe = :id"
+        );
+        $st2->execute([':id' => $id]);
+        $emp['numeros'] = $st2->fetchAll(PDO::FETCH_ASSOC);
+
+        json_out(['success' => true, 'employee' => $emp]);
+    }
+
+    // ── validation_queue ──────────────────────────────────────────────────────
+    if ($action === 'validation_queue') {
+        require_admin();
+        $rows = db()->query(
+            "SELECT dm.*, u.nom AS dem_nom, u.prenom AS dem_prenom,
+                    e.nom AS emp_nom, e.prenom AS emp_prenom, e.photo AS emp_photo
+             FROM Demandes_Modification dm
+             JOIN Utilisateurs u ON u.id_utilisateur = dm.id_utilisateur
+             LEFT JOIN Employes e ON e.id_employe = dm.id_cible AND dm.table_cible = 'Employes'
+             WHERE dm.statut = 'en_attente'
+             ORDER BY dm.date_demande ASC LIMIT 20"
+        )->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($rows as &$r) {
+            $r['demandeur'] = trim(($r['dem_prenom'] ?? '') . ' ' . ($r['dem_nom'] ?? ''));
+        }
+        json_out(['success' => true, 'queue' => $rows]);
+    }
+
+    // ── activity_log ──────────────────────────────────────────────────────────
+    if ($action === 'activity_log') {
+        require_admin();
+        $limit = min((int)($_GET['limit'] ?? 20), 500);
+        $rows = db()->query(
+            "SELECT h.*, CONCAT(u.prenom,' ',u.nom) AS admin_name
+             FROM Historique h
+             LEFT JOIN Utilisateurs u ON u.id_utilisateur = h.id_utilisateur
+             ORDER BY h.date_heure DESC LIMIT $limit"
+        )->fetchAll(PDO::FETCH_ASSOC);
+        json_out(['success' => true, 'logs' => $rows]);
+    }
+
+    json_out(['success' => false, 'error' => 'unknown_action']);
 }
 
-// ── Ajouter un employé [ADMIN] ────────────────────────────────────────────────
-function api_add_employee(): never {
-    global $current_user;
-    if (!$current_user['is_admin']) json_err('forbidden', 403);
+// ── Actions POST ─────────────────────────────────────────────────────────────
 
-    $nom       = trim($_POST['nom']        ?? '');
-    $prenom    = trim($_POST['prenom']     ?? '');
-    $poste     = trim($_POST['poste']      ?? '');
-    $email     = trim($_POST['email']      ?? '');
-    $id_service= (int)($_POST['id_service']?? 0);
-    $photo     = trim($_POST['photo']      ?? '');
-    $numeros   = $_POST['numeros']         ?? [];   // tableau [{type, numero, principal}]
+if ($method === 'POST') {
 
-    if (!$nom || !$prenom || !$email) json_err('missing_fields');
-    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) json_err('invalid_email');
+    // ── add_employee / edit_employee ──────────────────────────────────────────
+    if (in_array($action, ['add_employee', 'edit_employee'])) {
+        require_admin();
 
-    $db = db();
-    $db->beginTransaction();
-    try {
-        $db->prepare("
-            INSERT INTO Employes (nom, prenom, poste, email, photo, id_service)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ")->execute([$nom, $prenom, $poste, $email, $photo, $id_service ?: null]);
+        $prenom = clean($_POST['prenom'] ?? '');
+        $nom    = clean($_POST['nom']    ?? '');
+        $email  = trim($_POST['email']   ?? '');
+        $poste  = clean($_POST['poste']  ?? '');
+        $photo  = clean($_POST['photo']  ?? '');
+        $id_svc = (int)($_POST['id_service'] ?? 0) ?: null;
 
-        $id_emp = (int) $db->lastInsertId();
+        if (!$prenom || !$nom || !$email) json_out(['success'=>false,'error'=>'missing_fields']);
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) json_out(['success'=>false,'error'=>'invalid_email']);
 
-        // Numéros
-        foreach ((array)$numeros as $n) {
-            $type  = $n['type']      ?? 'mobile';
-            $num   = trim($n['numero'] ?? '');
-            $princ = !empty($n['principal']) ? 1 : 0;
-            if ($num) {
-                $db->prepare("
-                    INSERT INTO Numeros (id_employe, type_numero, numero, principal)
-                    VALUES (?, ?, ?, ?)
-                ")->execute([$id_emp, $type, $num, $princ]);
-            }
+        $id_localisation = (int)($_POST['id_localisation'] ?? 0) ?: null;
+        $loc_nom  = clean($_POST['loc_nom'] ?? '');
+
+        if ($loc_nom) {
+            $stLoc = db()->prepare(
+                "INSERT INTO Localisations
+                   (nom_localisation, description, ville, site, batiment, etage, bureau)
+                 VALUES (:nom, :desc, :ville, :site, :bat, :etage, :bureau)"
+            );
+            $stLoc->execute([
+                ':nom'   => $loc_nom,
+                ':desc'  => clean($_POST['loc_description'] ?? ''),
+                ':ville' => clean($_POST['loc_ville']       ?? ''),
+                ':site'  => clean($_POST['loc_site']        ?? ''),
+                ':bat'   => clean($_POST['loc_batiment']    ?? ''),
+                ':etage' => clean($_POST['loc_etage']       ?? ''),
+                ':bureau'=> clean($_POST['loc_bureau']      ?? ''),
+            ]);
+            $id_localisation = (int)db()->lastInsertId();
         }
 
-        log_action('ADD_EMPLOYE', 'Employes', $id_emp, $current_user['id_db']);
-        $db->commit();
-    } catch (PDOException $e) {
-        $db->rollBack();
-        json_err('db_error', 500);
+        if ($action === 'add_employee') {
+            $chk = db()->prepare("SELECT id_employe FROM Employes WHERE email = :e");
+            $chk->execute([':e' => $email]);
+            if ($chk->fetch()) json_out(['success'=>false,'error'=>'email_already_used']);
+
+            $st = db()->prepare(
+                "INSERT INTO Employes (prenom, nom, email, poste, photo, id_service, id_localisation)
+                 VALUES (:prenom,:nom,:email,:poste,:photo,:svc,:loc)"
+            );
+            $st->execute([
+                ':prenom' => $prenom, ':nom' => $nom, ':email' => $email,
+                ':poste'  => $poste,  ':photo' => $photo ?: null,
+                ':svc'    => $id_svc, ':loc'  => $id_localisation,
+            ]);
+            $id_emp = (int)db()->lastInsertId();
+
+        } else {
+            $id_emp = (int)($_POST['id_employe'] ?? 0);
+            if (!$id_emp) json_out(['success'=>false,'error'=>'invalid_id']);
+
+            $chk = db()->prepare("SELECT id_employe FROM Employes WHERE email=:e AND id_employe<>:id");
+            $chk->execute([':e' => $email, ':id' => $id_emp]);
+            if ($chk->fetch()) json_out(['success'=>false,'error'=>'email_already_used']);
+
+            $st = db()->prepare(
+                "UPDATE Employes
+                 SET prenom=:prenom, nom=:nom, email=:email, poste=:poste,
+                     photo=:photo, id_service=:svc, id_localisation=:loc
+                 WHERE id_employe=:id"
+            );
+            $st->execute([
+                ':prenom' => $prenom, ':nom' => $nom, ':email' => $email,
+                ':poste'  => $poste,  ':photo' => $photo ?: null,
+                ':svc'    => $id_svc, ':loc'  => $id_localisation, ':id' => $id_emp,
+            ]);
+        }
+
+        $numeros = $_POST['numeros'] ?? [];
+        db()->prepare("DELETE FROM Numeros WHERE id_employe=:id")->execute([':id'=>$id_emp]);
+
+        foreach ($numeros as $n) {
+            $type   = in_array($n['type']??'', ['fixe','mobile','whatsapp','poste']) ? $n['type'] : 'mobile';
+            $numero = clean($n['numero'] ?? '');
+            $princ  = ($n['principal'] ?? '0') === '1' ? 1 : 0;
+            if (!$numero) continue;
+            $stN = db()->prepare(
+                "INSERT INTO Numeros (id_employe, type_numero, numero, principal)
+                 VALUES (:id, :type, :num, :princ)"
+            );
+            $stN->execute([':id'=>$id_emp,':type'=>$type,':num'=>$numero,':princ'=>$princ]);
+        }
+
+        $logAction = $action === 'add_employee' ? 'ADD_EMPLOYE' : 'EDIT_EMPLOYE';
+        log_act($logAction, 'Employes', $id_emp);
+
+        json_out(['success' => true, 'id_employe' => $id_emp]);
     }
 
-    json_ok(['message' => 'Employé ajouté', 'id_employe' => $id_emp]);
-}
+    // ── add_user ──────────────────────────────────────────────────────────────
+    if ($action === 'add_user') {
+        require_admin();
 
-// ── Supprimer un employé [ADMIN] ──────────────────────────────────────────────
-function api_delete_employee(int $id): never {
-    global $current_user;
-    if (!$current_user['is_admin']) json_err('forbidden', 403);
-    if ($id <= 0) json_err('invalid_id');
+        $id_employe_lie = (int)($_POST['id_employe_lie'] ?? 0);
+        $nom            = clean($_POST['nom']    ?? '');
+        $prenom         = clean($_POST['prenom'] ?? '');
+        $login          = strtolower(trim($_POST['login'] ?? ''));
+        $pwd            = $_POST['mot_de_passe'] ?? '';
+        $pwd_conf       = $_POST['mot_de_passe_conf'] ?? '';
+        $id_role        = (int)($_POST['id_role'] ?? 0) ?: null;
 
-    $db = db();
-    $db->beginTransaction();
-    try {
-        $db->prepare("DELETE FROM Numeros  WHERE id_employe = ?")->execute([$id]);
-        $db->prepare("DELETE FROM Favoris  WHERE id_employe = ?")->execute([$id]);
-        $db->prepare("DELETE FROM Employes WHERE id_employe = ?")->execute([$id]);
-        log_action('DELETE_EMPLOYE', 'Employes', $id, $current_user['id_db']);
-        $db->commit();
-    } catch (PDOException $e) {
-        $db->rollBack();
-        json_err('db_error', 500);
+        if (!$id_employe_lie || !$nom || !$prenom || !$login || !$id_role)
+            json_out(['success'=>false,'error'=>'missing_fields']);
+        if (!$pwd || strlen($pwd) < 8)
+            json_out(['success'=>false,'error'=>'missing_fields']);
+        if ($pwd !== $pwd_conf)
+            json_out(['success'=>false,'error'=>'missing_fields']);
+
+        $chkEmp = db()->prepare("SELECT id_employe FROM Employes WHERE id_employe=:id");
+        $chkEmp->execute([':id'=>$id_employe_lie]);
+        if (!$chkEmp->fetch()) json_out(['success'=>false,'error'=>'invalid_employee']);
+
+        $chkDup = db()->prepare(
+            "SELECT id_utilisateur FROM Utilisateurs WHERE id_employe_lie=:id"
+        );
+        $chkDup->execute([':id'=>$id_employe_lie]);
+        if ($chkDup->fetch()) json_out(['success'=>false,'error'=>'employee_has_account']);
+
+        $chkLogin = db()->prepare("SELECT id_utilisateur FROM Utilisateurs WHERE login=:l");
+        $chkLogin->execute([':l'=>$login]);
+        if ($chkLogin->fetch()) json_out(['success'=>false,'error'=>'login_already_used']);
+
+        $chkRole = db()->prepare("SELECT id_role FROM Roles WHERE id_role=:id");
+        $chkRole->execute([':id'=>$id_role]);
+        if (!$chkRole->fetch()) json_out(['success'=>false,'error'=>'invalid_role']);
+
+        $hash = password_hash($pwd, PASSWORD_BCRYPT);
+
+        $st = db()->prepare(
+            "INSERT INTO Utilisateurs (nom, prenom, login, mot_de_passe, id_role, id_employe_lie)
+             VALUES (:nom, :prenom, :login, :pwd, :role, :emp)"
+        );
+        $st->execute([
+            ':nom'    => $nom,
+            ':prenom' => $prenom,
+            ':login'  => $login,
+            ':pwd'    => $hash,
+            ':role'   => $id_role,
+            ':emp'    => $id_employe_lie,
+        ]);
+        $id_user = (int)db()->lastInsertId();
+
+        log_act('ADD_USER', 'Utilisateurs', $id_user);
+
+        json_out(['success' => true, 'id_utilisateur' => $id_user]);
     }
-    json_ok(['message' => 'Employé supprimé']);
-}
 
-// ── Mettre à jour son propre profil ──────────────────────────────────────────
-function api_update_profile(): never {
-    global $current_user;
+    // ── edit_user ─────────────────────────────────────────────────────────────
+    if ($action === 'edit_user') {
+        require_admin();
 
-    $id_emp = $current_user['id_employe'] ?? 0;
-    if (!$id_emp) json_err('no_employee_linked');
+        $id_user  = (int)($_POST['id_utilisateur'] ?? 0);
+        $nom      = clean($_POST['nom']    ?? '');
+        $prenom   = clean($_POST['prenom'] ?? '');
+        $login    = strtolower(trim($_POST['login'] ?? ''));
+        $pwd      = $_POST['mot_de_passe'] ?? '';
+        $pwd_conf = $_POST['mot_de_passe_conf'] ?? '';
+        $id_role  = (int)($_POST['id_role'] ?? 0) ?: null;
 
-    $allowed = ['poste', 'email', 'photo'];
-    $sets = []; $params = [];
+        if (!$id_user || !$nom || !$prenom || !$login || !$id_role)
+            json_out(['success'=>false,'error'=>'missing_fields']);
 
-    foreach ($allowed as $field) {
-        if (isset($_POST[$field])) {
-            $val = trim($_POST[$field]);
-            if ($field === 'email' && !filter_var($val, FILTER_VALIDATE_EMAIL)) json_err('invalid_email');
-            $sets[]   = "`$field` = ?";
-            $params[] = $val;
+        $chkLogin = db()->prepare(
+            "SELECT id_utilisateur FROM Utilisateurs WHERE login=:l AND id_utilisateur<>:id"
+        );
+        $chkLogin->execute([':l'=>$login,':id'=>$id_user]);
+        if ($chkLogin->fetch()) json_out(['success'=>false,'error'=>'login_already_used']);
+
+        if ($pwd) {
+            if (strlen($pwd) < 8) json_out(['success'=>false,'error'=>'missing_fields']);
+            if ($pwd !== $pwd_conf) json_out(['success'=>false,'error'=>'missing_fields']);
+            $hash = password_hash($pwd, PASSWORD_BCRYPT);
+            $st = db()->prepare(
+                "UPDATE Utilisateurs
+                 SET nom=:nom,prenom=:prenom,login=:login,mot_de_passe=:pwd,id_role=:role
+                 WHERE id_utilisateur=:id"
+            );
+            $st->execute([':nom'=>$nom,':prenom'=>$prenom,':login'=>$login,
+                          ':pwd'=>$hash,':role'=>$id_role,':id'=>$id_user]);
+        } else {
+            $st = db()->prepare(
+                "UPDATE Utilisateurs
+                 SET nom=:nom,prenom=:prenom,login=:login,id_role=:role
+                 WHERE id_utilisateur=:id"
+            );
+            $st->execute([':nom'=>$nom,':prenom'=>$prenom,':login'=>$login,
+                          ':role'=>$id_role,':id'=>$id_user]);
+        }
+
+        log_act('EDIT_USER', 'Utilisateurs', $id_user);
+        json_out(['success' => true, 'id_utilisateur' => $id_user]);
+    }
+
+    // ── approve_request / reject_request ──────────────────────────────────────
+    if (in_array($action, ['approve_request','reject_request'])) {
+        require_admin();
+        $id_demande = (int)($_POST['id_demande'] ?? 0);
+        $statut     = $action === 'approve_request' ? 'valide' : 'refuse';
+        $st = db()->prepare(
+            "UPDATE Demandes_Modification
+             SET statut=:s, id_admin=:a, date_validation=NOW()
+             WHERE id_demande=:id AND statut='en_attente'"
+        );
+        $st->execute([':s'=>$statut,':a'=>current_user_id(),':id'=>$id_demande]);
+        if ($st->rowCount() === 0) json_out(['success'=>false,'error'=>'not_found']);
+        $logAct = $action === 'approve_request' ? 'DEMANDE_VALIDE' : 'DEMANDE_REFUSE';
+        log_act($logAct, 'Employes', $id_demande);
+        json_out(['success' => true]);
+    }
+
+    // ── delete_employee ───────────────────────────────────────────────────────
+    if ($action === 'delete_employee') {
+        require_admin();
+        $id = (int)($_POST['id_employe'] ?? 0);
+        if (!$id) json_out(['success'=>false,'error'=>'invalid_id']);
+        db()->prepare("DELETE FROM Numeros WHERE id_employe=:id")->execute([':id'=>$id]);
+        $st = db()->prepare("DELETE FROM Employes WHERE id_employe=:id");
+        $st->execute([':id'=>$id]);
+        if ($st->rowCount() === 0) json_out(['success'=>false,'error'=>'not_found']);
+        log_act('DELETE_EMPLOYE', 'Employes', $id);
+        json_out(['success' => true]);
+    }
+
+    // ── add_favorite ──────────────────────────────────────────────────────────
+    if ($action === 'add_favorite') {
+        $id_employe = (int)($_POST['id_employe'] ?? 0);
+        if (!$id_employe) json_out(['success'=>false,'error'=>'invalid_id']);
+        $uid = current_user_id();
+        // Vérifier si déjà en favori
+        $chk = db()->prepare(
+            "SELECT id FROM Favoris WHERE id_utilisateur=:u AND id_employe=:e"
+        );
+        $chk->execute([':u'=>$uid,':e'=>$id_employe]);
+        if ($chk->fetch()) {
+            db()->prepare("DELETE FROM Favoris WHERE id_utilisateur=:u AND id_employe=:e")
+                ->execute([':u'=>$uid,':e'=>$id_employe]);
+            json_out(['success'=>true,'action'=>'removed']);
+        } else {
+            db()->prepare("INSERT INTO Favoris (id_utilisateur, id_employe) VALUES (:u,:e)")
+                ->execute([':u'=>$uid,':e'=>$id_employe]);
+            json_out(['success'=>true,'action'=>'added']);
         }
     }
-    if (!$sets) json_err('nothing_to_update');
 
-    $params[] = $id_emp;
-    db()->prepare("UPDATE Employes SET " . implode(', ', $sets) . " WHERE id_employe = ?")
-        ->execute($params);
-
-    log_action('UPDATE_PROFILE', 'Employes', $id_emp, $current_user['id_db']);
-    json_ok(['message' => 'Profil mis à jour']);
+    json_out(['success' => false, 'error' => 'unknown_action']);
 }
 
-// ── Soumettre une demande de modification ─────────────────────────────────────
-function api_request_modification(): never {
-    global $current_user;
-
-    $table   = $_POST['table_cible']    ?? 'Employes';
-    $id_cib  = (int)($_POST['id_cible'] ?? 0);
-    $champ   = trim($_POST['champ']     ?? '');
-    $valeur  = trim($_POST['valeur']    ?? '');
-    $type    = $_POST['type_validation']?? 'ADMIN';
-
-    $valid_tables = ['Employes', 'Numeros', 'Services'];
-    if (!in_array($table, $valid_tables, true)) json_err('invalid_table');
-    if (!$id_cib || !$champ || $valeur === '') json_err('missing_fields');
-
-    // Récupérer l'ancienne valeur
-    $old = '';
-    if ($table === 'Employes') {
-        $allowed_fields = ['nom','prenom','poste','email','photo','id_service'];
-        if (!in_array($champ, $allowed_fields, true)) json_err('invalid_field');
-        $row = db()->prepare("SELECT `$champ` FROM Employes WHERE id_employe = ?")->execute([$id_cib]);
-        $old = db()->query("SELECT `$champ` FROM Employes WHERE id_employe = $id_cib")->fetchColumn() ?? '';
-    }
-
-    db()->prepare("
-        INSERT INTO Demandes_Modification
-            (table_cible, id_cible, champ_modifie, ancienne_valeur, nouvelle_valeur, type_validation, id_utilisateur)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    ")->execute([$table, $id_cib, $champ, $old, $valeur, $type, $current_user['id_db']]);
-
-    json_ok(['message' => 'Demande soumise, en attente de validation']);
-}
-
-// ── Changer son mot de passe ──────────────────────────────────────────────────
-function api_change_password(): never {
-    global $current_user;
-
-    $old = $_POST['old_password'] ?? '';
-    $new = $_POST['new_password'] ?? '';
-
-    if (strlen($new) < 8) json_err('password_too_short');
-
-    $stmt = db()->prepare("SELECT mot_de_passe FROM Utilisateurs WHERE id_utilisateur = ?");
-    $stmt->execute([$current_user['id_db']]);
-    $row = $stmt->fetch();
-
-    if (!$row || !password_verify($old, $row['mot_de_passe'])) json_err('wrong_password');
-
-    $hash = password_hash($new, PASSWORD_DEFAULT);
-    db()->prepare("UPDATE Utilisateurs SET mot_de_passe = ? WHERE id_utilisateur = ?")
-        ->execute([$hash, $current_user['id_db']]);
-
-    log_action('CHANGE_PASSWORD', 'Utilisateurs', $current_user['id_db'], $current_user['id_db']);
-    json_ok(['message' => 'Mot de passe modifié avec succès']);
-}
+json_out(['success' => false, 'error' => 'method_not_allowed']);

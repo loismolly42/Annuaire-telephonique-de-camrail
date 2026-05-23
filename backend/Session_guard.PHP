@@ -1,13 +1,10 @@
 <?php
 /**
  * Camrail Directory — Garde de session
- * À inclure en haut de chaque page protégée (dashboard, directory, departments, profile, settings)
- * 
- * Usage dans chaque page :
- *   $active_page = 'dashboard'; // adapter selon la page
- *   require_once __DIR__ . '/backend/session_guard.php';
  */
 
+// session_name AVANT session_start — identique à auth.php et login.php
+session_name('camrail_sess');
 if (session_status() === PHP_SESSION_NONE) {
     session_set_cookie_params([
         'lifetime' => 0,
@@ -18,15 +15,18 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/config.php';
 
-// Pas connecté → retour au login
 if (empty($_SESSION['user_id'])) {
-    header('Location: /camrail_annuaire/login.php?error=session');
-    exit;
+    if (!empty($GLOBALS['api_mode'])) json_err('unauthenticated', 401);
+    header('Location: /camrail_annuaire/login.php?error=session'); exit;
 }
 
-// ── Construire $current_user depuis la session ────────────────────────────────
+if (!empty($GLOBALS['require_admin']) && ($_SESSION['role'] ?? '') !== 'admin') {
+    if (!empty($GLOBALS['api_mode'])) json_err('forbidden', 403);
+    header('Location: /camrail_annuaire/login.php?error=session'); exit;
+}
+
 $current_user = [
     'id'         => $_SESSION['user_id']    ?? '',
     'id_db'      => $_SESSION['id_db']      ?? 0,
